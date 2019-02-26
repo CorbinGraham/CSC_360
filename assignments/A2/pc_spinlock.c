@@ -15,6 +15,8 @@ int consumer_wait_count;     // # of times consumer had to wait
 int histogram [MAX_ITEMS+1]; // histogram [i] == # of times list stored i items
 
 int items = 0;
+spinlock_t lock;
+spinlock.create(&lock);
 
 void* producer (void* v) {
   for (int i=0; i<NUM_ITERATIONS; i++) {
@@ -36,6 +38,9 @@ int main (int argc, char** argv) {
   uthread_init (4);
   
   // TODO: Create Threads and Join
+  for(int i = 0; i < 4; i++) {
+  	uthread_create(t[i]);
+  }
   
   printf ("producer_wait_count=%d\nconsumer_wait_count=%d\n", producer_wait_count, consumer_wait_count);
   printf ("items value histogram:\n");

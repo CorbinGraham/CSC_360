@@ -48,7 +48,6 @@ void* consumer (void* v) {
     histogram[items]++;
     uthread_cond_signal(producer_condition);
     uthread_mutex_unlock(mutex);
-    // TODO
   }
   return NULL;
 }

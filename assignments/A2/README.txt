@@ -1,0 +1,1 @@
+Producer consumer code help from here: https://docs.oracle.com/cd/E19455-01/806-5257/sync-31/index.html?fbclid=IwAR2WcpnLPAeRuiho7QVtjP9Unwx1f1AXvyqz0D2DlcjQeS9BoYqpH30rqwk

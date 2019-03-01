@@ -112,20 +112,21 @@ void* agent (void* av) {
 // ++++++++++++++++++ SMOKER CHECKER CODE ++++++++++++++++++++
 
 void* find_correct_smoker() {
+	//This meathod will always be called twice
+		//once for each resourse.
+		//Beacuse of this, we need a case for when only
+		//one resourse boolean has been set.
+		//This is covered by the else statement.
 	if(tobacco_boolean && match_boolean) {
-		tobacco_boolean = 0;
-		match_boolean = 0;
 		pthread_cond_signal(&paper_smoker_cond);
 	}
 	else if(tobacco_boolean && paper_boolean) {
-		tobacco_boolean = 0;
-		paper_boolean = 0;
 		pthread_cond_signal(&match_smoker_cond);
 	}
-	else {
-		paper_boolean = 0;
-		match_boolean = 0;
+	else if(match_boolean && paper_boolean){
 		pthread_cond_signal(&tobacco_smoker_cond);
+	}else {
+		//Don't do anything here
 	}
 	return NULL;
 }
@@ -140,6 +141,10 @@ void* tobacco_smoker (void* v) {
 	while(true) {
 		pthread_cond_wait(&tobacco_smoker_cond, &agent->mutex);
 		smoke_count[4]++;
+
+		paper_boolean = false;
+		match_boolean = false;
+
 		pthread_cond_signal(&agent->smoke);
 	}
 	pthread_mutex_unlock(&agent->mutex);
@@ -150,8 +155,12 @@ void* match_smoker (void* v) {
 	struct Agent* agent = v;
     pthread_mutex_lock(&agent->mutex);
     while(true) {
-      pthread_cond_wait(&match_smoker_cond, &agent->mutex);
-      smoke_count[1]++;
+      	pthread_cond_wait(&match_smoker_cond, &agent->mutex);
+      	smoke_count[1]++;
+
+     	paper_boolean = false;
+		tobacco_boolean = false;
+
       pthread_cond_signal(&agent->smoke);
     }
     pthread_mutex_unlock(&agent->mutex);
@@ -162,9 +171,13 @@ void* paper_smoker (void* v) {
 	struct Agent* agent = v;
 	pthread_mutex_lock(&agent->mutex);
 	while(true) {
-      pthread_cond_wait(&paper_smoker_cond, &agent->mutex);
-      smoke_count[2]++;
-      pthread_cond_signal(&agent->smoke);
+      	pthread_cond_wait(&paper_smoker_cond, &agent->mutex);
+      	smoke_count[2]++;
+
+		tobacco_boolean = false;
+		match_boolean = false;
+
+      	pthread_cond_signal(&agent->smoke);
     }
     pthread_mutex_unlock(&agent->mutex);
   return NULL;
@@ -211,8 +224,7 @@ void* paper_available (void* v) {
 // ++++++++++++++++++ END SMOKERS +++++++++++++++++++
 
 //This main is SUPER SUPER UGLY but I could not figure a way to loop it
-//IT KEEPS DEADLOCKING AND I DON'T KNOW WHY!!!!!!!!
-int main (int argc, char** argv) {
+void* run() {
 	struct Agent* created_agent = createAgent();
 
   	pthread_t tobacco_available_var;
@@ -252,15 +264,18 @@ int main (int argc, char** argv) {
   	//pthread_join(tobacco_smoker_var, NULL);
   	//pthread_join(match_smoker_var, NULL);
   	//pthread_join(paper_smoker_var, NULL);
+}
 
-  	printf("%d %d\n",signal_count[MATCH], smoke_count[MATCH]);
+//IT KEEPS DEADLOCKING AND I DON'T KNOW WHY!!!!!!!!
+int main (int argc, char** argv) {
+	run();
 
-  	//assert (signal_count [MATCH]   == smoke_count [MATCH]);
- 	//assert (signal_count [PAPER]   == smoke_count [PAPER]);
-  	//assert (signal_count [TOBACCO] == smoke_count [TOBACCO]);
-  	printf("%d\n", smoke_count [MATCH] + smoke_count [PAPER] + smoke_count [TOBACCO]);
+  	assert (signal_count [MATCH]   == smoke_count [MATCH]);
+ 	assert (signal_count [PAPER]   == smoke_count [PAPER]);
+  	assert (signal_count [TOBACCO] == smoke_count [TOBACCO]);
   	assert (smoke_count [MATCH] + smoke_count [PAPER] + smoke_count [TOBACCO] == NUM_ITERATIONS);
 
   	printf ("Smoke counts: %d matches, %d paper, %d tobacco\n",
           smoke_count [MATCH], smoke_count [PAPER], smoke_count [TOBACCO]);
+  	printf("Total times smoked: %d\n", smoke_count [MATCH] + smoke_count [PAPER] + smoke_count [TOBACCO]);
 }

@@ -191,7 +191,7 @@ void* tobacco_available (void* v) {
     while(true) {
     	//Lots of problems with deadlock here and I'm having problems with it
       	pthread_cond_wait(&agent->tobacco, &agent->mutex);
-      	tobacco_boolean = 1;
+      	tobacco_boolean = true;
       	find_correct_smoker();
   	}
   	pthread_mutex_unlock(&agent->mutex);
@@ -203,7 +203,7 @@ void* match_available (void* v) {
     pthread_mutex_lock(&agent->mutex);
     while(true) {
       pthread_cond_wait(&agent->match, &agent->mutex);
-      match_boolean = 1;
+      match_boolean = true;
       find_correct_smoker();
     }
     pthread_mutex_unlock(&agent->mutex);
@@ -215,7 +215,7 @@ void* paper_available (void* v) {
 	pthread_mutex_lock(&agent->mutex);
 	while(true) {
       pthread_cond_wait(&agent->paper, &agent->mutex);
-      paper_boolean = 1;
+      paper_boolean = true;
       find_correct_smoker();
     }
     pthread_mutex_unlock(&agent->mutex);

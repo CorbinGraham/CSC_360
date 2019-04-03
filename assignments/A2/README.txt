@@ -28,4 +28,4 @@ I copied skeleton code from pc_spinlock.c and used it for all of the PC problems
 Got the general idea for smokers problem solution from https://courses.cs.washington.edu/courses/cse451/04au/homework/hw3sol..htm
 Also used http://cnds.eecs.jacobs-university.de/courses/caos-2009/p2.pdf for additional information on the problem.
 
-I was not able to get pc_sem_pthred working correctly and am not sure if pc_sem_uthread is doing things correctly.
+I was not able to get pc_sem_pthred working correctly and am not sure if pc_sem_uthread is doing things correctly. :(

@@ -9,6 +9,8 @@ char* intToHex(char* buf, int val) {
     sprintf( buf, "%08x", val);
     return buf;
 }
+
+//Indicates all the important information about the file system and its implementation.
 void createSuperBlock(FILE* disk){
     char* buffer = malloc(BLOCK_SIZE*sizeof(char));
     char magicBuf[sizeof(int)];
@@ -25,6 +27,7 @@ void createSuperBlock(FILE* disk){
     strcat(buffer, blockBuf);
     strcat(buffer, inodeBuf);
 
+    //Fill the remainder of the block with 0's after the important info.
     int i;
     len = strlen(buffer);
     for(i = len; i < BLOCK_SIZE; i++) {
@@ -37,19 +40,17 @@ void createSuperBlock(FILE* disk){
     free(buffer);
 }
 
+//Indicates, by using a single bit, which blocks are free and which blocks are in use.
 void createFreeBlockVector(FILE* disk){
-    //I use BLOCK_SIZE instead of NUM_BLOCKS since it's more descript about what it's doing
-    char* buffer = malloc(BLOCK_SIZE*8);
+    char* buffer = malloc(BLOCK_SIZE);
     
+    //Reserving the first 10 blocks
+    buffer[0] = 0;
+    buffer[1] = 252;
+
     int i;
-    for(i = 0; i < (BLOCK_SIZE*8); i++) {
-        //Reserving the first 10 blocks
-        if(i < 10) {
-            buffer[i] = 0;   
-        }
-        else {
-            buffer[i] = 1;
-        }
+    for(i = 2; i < (BLOCK_SIZE); i++) {
+        buffer[i] = 255;
     }
     writeBlock(disk, 1, buffer);
     free(buffer);
@@ -72,12 +73,6 @@ void createEmptyBlocks(FILE* disk) {
     free(buffer);
 }
 
-void initLLC(FILE* disk){
-    createSuperBlock(disk);
-    createFreeBlockVector(disk);
-    createEmptyBlocks(disk);
-}
-
 void readBlock(FILE* disk, int blockNum, char* buffer){
     fseek(disk, blockNum * BLOCK_SIZE, SEEK_SET);
     fread(buffer, BLOCK_SIZE, 1, disk);
@@ -88,20 +83,167 @@ void writeBlock(FILE* disk, int blockNum, char* data){
     fwrite(data, BLOCK_SIZE, 1, disk); // Note: this will overwrite existing data in the block
 }
 
-char* createEmptyInode() {
-    char* inode = malloc(32);
-    inode[10] = 3;  //First direct block value pointing to block number 3
+struct inode createEmptyInode() {
+    struct inode inode;
+    inode.fileSize = 0;
+    inode.flag = 0;
+
+    int i;
+    for(i = 0; i < 10; i++) {
+        inode.directBlock[i] = 0;
+    }
+    inode.singleIndirect = 0;
+    inode.doubleIndirect = 0;
     return inode;
 }
 
-//char* addBlock(char* inode, int block) {
-    // You're going to probably want a bunch of functions like these
-//}
+
+int findFirstFreeBlock(FILE* disk) {
+    int i;
+    char* freeBlockVector = malloc(BLOCK_SIZE);
+
+    readBlock(disk, 1, freeBlockVector);
+
+    //Always skip the first 10 blocks
+    for(i = 9; i < BLOCK_SIZE; i++) {
+        if(TestBit(freeBlockVector, i) != 0) {
+            ClearBit(freeBlockVector, i);
+            writeBlock(disk, 1, freeBlockVector);
+
+            free(freeBlockVector);
+            return i;
+        }
+    }
+
+    free(freeBlockVector);
+    return -1;
+}
+
+//Indicates, by using a single bit, which blocks CONTAIN an Inode.
+//This works almost identically to the free block vector.
+//Legend:
+    //0 = no Inode in block
+    //1 = Inode contained in block
+//For this to work properly, it will need to always ignore the first 10 block.
+int findInode(FILE* disk) {
+    int i;
+    char* InodeBlockVector = malloc(BLOCK_SIZE);
+
+    readBlock(disk, 2, InodeBlockVector);
+
+    //Always skip the first 10 blocks
+
+    //******* I NEED TO IMPLEMENT THIS ********
+    for(i = 10; i < BLOCK_SIZE; i++) {
+        if(TestBit(InodeBlockVector, i) != 0) {
+            free(InodeBlockVector);
+            return i;
+        }
+    }
+
+    free(InodeBlockVector);
+    return -1;
+}
+
+//****** TODO: Break this down into meathods because it sucks right now.
+void writeToFile(FILE* disk, char* data) {
+    char* inodeBuffer = malloc(sizeof(char) * BLOCK_SIZE);
+    readBlock(disk, 2, inodeBuffer);
+
+    //Find a location to store the iNode for the new file
+    struct inode inode = createEmptyInode();
+    inode.fileSize = strlen(data);
+    inode.flag = 0;
+
+    int inodeLocation = findFirstFreeBlock(disk);
+    SetBit(inodeBuffer, inodeLocation);
+    //Writing to the inode map that a new inode exists
+    writeBlock(disk, 2, inodeBuffer);
+
+    //This gets the first block that we can write.
+    //TODO: implement add block function.
+    int numBlocksRequired = strlen(data) / BLOCK_SIZE;
+    //Covers the remainder of the data length
+    if (strlen(data) % BLOCK_SIZE != 0) {
+        numBlocksRequired++;
+    }
+
+    //Limit the size of a file to less than 10 blocks.
+    if(numBlocksRequired > 10) {
+        printf("File size is greater than 10 blocks. Not writing to disk.");
+        return;
+    }
+
+    printf("%d\n", inodeLocation);
+    //The block buffer holds enough chars to fill a block
+    char* blockBuffer = malloc(sizeof(char) * BLOCK_SIZE);
+    int i;
+    for(i = 0; i < numBlocksRequired; i++) {
+        //Copy one blocks worth of data to the buffer.
+        strncpy(blockBuffer, data + BLOCK_SIZE*i , BLOCK_SIZE);
+        //Find a block to store it in
+        int freeBlock = findFirstFreeBlock(disk);
+        writeBlock(disk, freeBlock, blockBuffer);
+        printf("%d\n", freeBlock);
+
+        //Have the inode point to the newly written block
+        inode.directBlock[i] = freeBlock;
+    }
+
+    //Finally, write the Inode to the previously determined block location.
+    fseek(disk, inodeLocation*BLOCK_SIZE, SEEK_SET);
+    fwrite(&inode, sizeof(inode), 1, disk);
+
+    free(blockBuffer);
+    free(inodeBuffer);
+}
+
+void readFile(FILE* disk, char* buffer) {
+    char* inodeBuffer = malloc(sizeof(char) * BLOCK_SIZE);
+    readBlock(disk, 2, inodeBuffer);
+
+    int inodeBlockLocation = findInode(disk);
+    struct inode inode;
+
+    fseek(disk, inodeBlockLocation * BLOCK_SIZE, SEEK_SET);
+    fread(&inode, sizeof(inode), 1, disk);
+
+    int numBlockstoRead = inode.fileSize / BLOCK_SIZE;
+    //Covers the remainder of the data length
+    if (inode.fileSize % BLOCK_SIZE != 0) {
+        numBlockstoRead++;
+    }
+
+    int i;
+    char* fileBuffer = malloc(inode.fileSize);
+    char* blockBuffer = malloc(BLOCK_SIZE);
+    for(i = 0; i < numBlockstoRead; i++) {
+        readBlock(disk, inode.directBlock[i], blockBuffer);
+        //Copy one blocks worth of data to the buffer.
+        strncpy(fileBuffer + BLOCK_SIZE*i, blockBuffer , BLOCK_SIZE);
+    }
+
+    printf("%s\n", fileBuffer);
+
+    free(fileBuffer);
+    free(blockBuffer);
+    free(inodeBuffer);
+}
+
+void initLLC(FILE* disk){
+    createSuperBlock(disk);
+    createFreeBlockVector(disk);
+    createEmptyBlocks(disk);
+}
 
 int main(int argc, char* argv[]) {
     FILE* disk = fopen("vdisk", "w+b");
     // Maybe add more things to the inode
     initLLC(disk);
+
+    char buffer[10];
+    writeToFile(disk, "Scarcely on striking packages by so property in delicate. Up or well must less rent read walk so be. Easy sold at do hour sing spot. Any meant has cease too the decay. Since party burst am it match. By or blushes between besides offices noisier as. Sending do brought winding compass in. Paid day till shed only fact age its end. Scarcely on striking packages by so property in delicate. Up or well must less rent read walk so be. Easy sold at do hour sing spot. Any meant has cease too the decay. Since party burst am it match. By or blushes between besides offices noisier as. Sending do brought winding compass in. Paid day till shed only fact age its end. ");
+    readFile(disk, buffer);
 
     fclose(disk);
     return 0;

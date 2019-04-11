@@ -85,7 +85,7 @@ This method allows the user to write their file to disk.
     this will be useful when creating directories.
 */
 
-int writeToFile(FILE* disk, char* data, char* fileName, int simulate) {
+int writeToFile(FILE* disk, char* data, int simulate) {
     //Find a location to store the iNode for the new file
     struct inode inode = createEmptyInode();
     inode.fileSize = strlen(data);

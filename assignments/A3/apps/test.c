@@ -114,6 +114,8 @@ int main(int argc, char* argv[]) {
 	testWritingSeveralFiles(disk);
 	testReadingSeveralFiles(disk);
 
+	printf("%s\n", "Thanks for testing ^̮^");
+
 	fclose(disk);
 
 	return 0;

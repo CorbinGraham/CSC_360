@@ -36,10 +36,8 @@ void createSuperBlock(FILE* disk){
     for(i = len; i < BLOCK_SIZE; i++) {
         buffer[i] = 0;
     }
-    
-    writeBlock(disk, 0, buffer);
 
-    readBlock(disk, 0, buffer);
+    writeBlock(disk, 0, buffer);
     free(buffer);
 }
 
@@ -85,11 +83,23 @@ This method allows the user to write their file to disk.
     this will be useful when creating directories.
 */
 
-int writeToFile(FILE* disk, char* data, int simulate) {
+int writeToFile(FILE* disk, char* data, char* fileName, int filetype, int simulate) {
+    //First we need to check that the directory has enough space for the file.
+    int directoryLocation = findDirectory(disk, fileName);
+    int freeDirectoryLocation = findFreeDirectorySpot(disk, directoryLocation);
+    if(freeDirectoryLocation == -1) {
+        printf("%s\n", "Directory is full ᕙ(⇀‸↼‶)ᕗ");
+    }
+
     //Find a location to store the iNode for the new file
     struct inode inode = createEmptyInode();
     inode.fileSize = strlen(data);
-    inode.flag = 0;
+    //Indicates that the file is a directory
+    if (filetype == 0) {
+        inode.flag = 0;
+    } else {
+        inode.flag = filetype;
+    }
 
     int inodeLocation;
     if(simulate != 0) {
@@ -99,6 +109,12 @@ int writeToFile(FILE* disk, char* data, int simulate) {
         clearBitandWrite(disk, inodeLocation, 1);
         //Set the inode bit to indicate a new inode exists
         setBitandWrite(disk, inodeLocation, 2);
+    }
+
+    //We now need to write and entry to the directory block that the file will be added to
+    if(simulate != 0){}
+    else {
+        insertDirectoryEntry(disk, directoryLocation, freeDirectoryLocation, inodeLocation, fileName);
     }
 
     //This gets the first block that we can write.
@@ -115,7 +131,6 @@ int writeToFile(FILE* disk, char* data, int simulate) {
         return -1;
     }
 
-    printf("%d\n", inodeLocation);
     //The block buffer holds enough chars to fill a block
     char* blockBuffer = malloc(sizeof(char) * BLOCK_SIZE);
     int i;
@@ -131,13 +146,16 @@ int writeToFile(FILE* disk, char* data, int simulate) {
             clearBitandWrite(disk, freeBlock, 1);
             writeBlock(disk, freeBlock, blockBuffer);
         }
-
-        printf("%d\n", freeBlock);
-
+        printf("        Wrote data to block location %d\n", freeBlock);
         //Have the inode point to the newly written block
         inode.directBlock[i] = freeBlock;
     }
 
+    if(simulate != 0) {
+
+    }else {
+        printf("        Wrote %d block(s) of data\n", numBlocksRequired);
+    }
     //Finally, write the Inode to the previously determined block location.
     if(simulate != 0) {
 
@@ -150,8 +168,16 @@ int writeToFile(FILE* disk, char* data, int simulate) {
     return inodeLocation;
 }
 
-char* readFile(FILE* disk, char* buffer) {
-    int inodeBlockLocation = findInode(disk);
+char* readFile(FILE* disk, char* filename, char* buffer) {
+    int directoryLocation = findFileByName(disk, filename, 11);
+    char* blockBuffer = malloc(BLOCK_SIZE);
+    char inodeBlockNum[3];
+    readBlock(disk, 11, blockBuffer);
+
+    //Read in the files data block
+    strncpy(inodeBlockNum, blockBuffer + directoryLocation, 2);
+    int inodeBlockLocation = (int)strtol(inodeBlockNum, NULL, 16);
+
     struct inode inode;
 
     fseek(disk, inodeBlockLocation * BLOCK_SIZE, SEEK_SET);
@@ -165,7 +191,6 @@ char* readFile(FILE* disk, char* buffer) {
 
     int i;
     char* fileBuffer = malloc(numBlockstoRead * BLOCK_SIZE);
-    char* blockBuffer = malloc(BLOCK_SIZE);
     for(i = 0; i < numBlockstoRead; i++) {
         readBlock(disk, inode.directBlock[i], blockBuffer);
         //Copy one blocks worth of data to the buffer.
@@ -178,6 +203,108 @@ char* readFile(FILE* disk, char* buffer) {
     return fileBuffer;
 }
 
+//Filename needs to be exact in order to find it.
+int findFileByName(FILE* disk, char* fileName, int blockNum) {
+    char* blockBuffer = malloc(sizeof(char) * BLOCK_SIZE);
+    readBlock(disk, 11, blockBuffer);
+
+    char currentFile[32];
+
+    int i;
+    for (i = 0; i < BLOCK_SIZE/INODE_SIZE; i++) {
+        strncpy(currentFile, blockBuffer + i*INODE_SIZE + 2, INODE_SIZE-2);
+        if(strcmp(currentFile, fileName) == 0) {
+            free(blockBuffer);
+            return i*INODE_SIZE;
+        }
+    }    
+    free(blockBuffer);
+    return -1;
+}
+
+//==============================+++++++++++++++++++********* FILE DELETION **************+++++++++++++++++++=======================
+
+void deleteFile(FILE* disk, char* fileName) {
+    char* blockBuffer = malloc(sizeof(char) * BLOCK_SIZE);
+    readBlock(disk, 11, blockBuffer);
+
+    int dirLocation = findFileByName(disk, fileName, 11);
+    if(dirLocation == -1) {
+        printf("%s\n", "Unable to find file to delete");
+        return;
+    }
+
+    char inodeLocation[3];
+
+    strncpy(inodeLocation, blockBuffer + dirLocation, 2);
+
+    //Delete the contents of the inode
+    int inodeValue = (int)strtol(inodeLocation, NULL, 16);
+    deleteInodeContents(disk, inodeValue);
+    deleteInode(disk, inodeValue);
+
+    //Clean up filename in the directory.
+    char emptyFilename[32];
+    int i;
+    for (i = 0; i < 32; i++){
+        emptyFilename[i] = 0;
+    }
+
+    strncpy(blockBuffer + inodeValue, emptyFilename, INODE_SIZE);
+
+    writeBlock(disk, 11, blockBuffer);
+
+    free(blockBuffer);
+}
+
+void deleteInode(FILE* disk, int inodeBlockNum) {
+    char* emptyBlock = malloc(sizeof(char) * BLOCK_SIZE);
+
+    int i;
+    for (i = 0; i < BLOCK_SIZE; ++i){   
+        emptyBlock[i] = 0;
+    }
+    printf("%s %d\n", "        Deleted inode at block location",inodeBlockNum);
+    //Clear the inode block
+    writeBlock(disk, inodeBlockNum, emptyBlock);
+    //Free the block in the free block vector.
+    setBitandWrite(disk, inodeBlockNum, 1);
+    //Indicate an Inode does not exist at the old location.
+    clearBitandWrite(disk, inodeBlockNum, 2);
+
+    free(emptyBlock);
+}
+
+//Only deletes what is inside the inodes direct blocks and does not delete the Inode itself.
+void deleteInodeContents(FILE* disk, int inodeBlockNum) {
+    struct inode inode;
+
+    fseek(disk, inodeBlockNum * BLOCK_SIZE, SEEK_SET);
+    fread(&inode, sizeof(inode), 1, disk);
+
+    int numBlockstoDelete = inode.fileSize / BLOCK_SIZE;
+    //Covers the remainder of the data length
+    if (inode.fileSize % BLOCK_SIZE != 0) {
+        numBlockstoDelete++;
+    }
+
+    char* emptyBlock = malloc(sizeof(char) * BLOCK_SIZE);
+
+    int i;
+    for (i = 0; i < BLOCK_SIZE; ++i){   
+        emptyBlock[i] = 0;
+    }
+
+    for(i = 0; i < numBlockstoDelete; i++) {
+        //Copy one blocks worth of data to the buffer.
+        writeBlock(disk, inode.directBlock[i], emptyBlock);
+        //Make the block available again
+        setBitandWrite(disk, inode.directBlock[i], 1);
+        printf("%s %d\n", "        Deleted file contents at block location",inode.directBlock[i]);
+    }
+
+    free(emptyBlock);
+}
 
 /*=================================++++++++++++++++********* DIRECTORIES ***********+++++++++++++++++++==========================
 Structure:
@@ -193,17 +320,117 @@ void createDirectory(FILE* disk, char* fileName) {
     }
 
     //First simulate creation to get block number
-    shortToHex(blockBuffer, writeToFile(disk, blockBuffer, 1));
+    shortToHex(blockBuffer, writeToFile(disk, blockBuffer, fileName, 0, 1));
 
     strncpy(blockBuffer + 2, fileName, INODE_SIZE-2);
 
     //Actually finish the file write.
-    writeToFile(disk, blockBuffer, 0);
+    writeToFile(disk, blockBuffer, fileName, 0, 0);
 
     free(contents);
     free(blockBuffer);
 }
 
+void insertDirectoryEntry(FILE* disk, int directoryBlock, int directorySpot, int inodeLocation, char* fileName){
+    char* blockBuffer = malloc(sizeof(char) * BLOCK_SIZE);
+    readBlock(disk, directoryBlock, blockBuffer);
+
+    shortToHex(blockBuffer + directorySpot, (short)inodeLocation);
+    strncpy(blockBuffer + directorySpot + 2, fileName, INODE_SIZE-2);
+
+    writeBlock(disk, directoryBlock, blockBuffer);
+
+    free(blockBuffer);
+}
+
+int findDirectory(FILE* disk, char* fileName) {
+    char* tokenized;
+
+    //We need to make a copy of fileName otherwise it tries to tokenize a literal.
+    char cpy[30];
+    strncpy(cpy, fileName, 29);
+
+    //Counts the number of tokens that will be created
+    int i;
+    int tokenCount = 0;
+    for(i = 0; i < strlen(cpy); i++) {
+        if(cpy[i] == '/') {
+            tokenCount++;
+        }
+    }
+    //Covers the case where we need to use the root directory
+    if (tokenCount == 0 || tokenCount == 1) {
+        return 11;
+    }
+
+    //Covers the case where we need to use the root directory
+    if (tokenCount == 0 || tokenCount == 1) {
+        return 11;
+    }
+
+    struct inode inode = createEmptyInode();
+    char* blockBuffer = malloc(sizeof(char) * BLOCK_SIZE);
+
+    int counter = 0;
+    tokenized = strtok(cpy, "/");
+    while (tokenized != NULL){
+        char inodeBlockNum[3];
+        int directoryLocation;
+        int dataBlockNum;
+        int directBlockLocation;
+
+        if (strcmp(strrchr(cpy,'/')+1, tokenized) == 0) {
+            printf("%d\n", directoryLocation);
+            return directoryLocation;
+        }
+
+        tokenized = strtok (NULL, "/");
+
+        if(counter == 0) {
+            //Always start the search from the root directory.
+            directoryLocation = findFileByName(disk, tokenized, 11);
+            readBlock(disk, 11, blockBuffer);
+        }else {
+            directoryLocation = findFileByName(disk, tokenized, directBlockLocation);
+            readBlock(disk, directBlockLocation, blockBuffer);
+        }
+        strncpy(inodeBlockNum, blockBuffer + directoryLocation, INODE_SIZE);
+        dataBlockNum = (int)strtol(inodeBlockNum, NULL, 16);
+
+        //Read in the newly found inode
+        fseek(disk, dataBlockNum * BLOCK_SIZE, SEEK_SET);
+        fread(&inode, sizeof(inode), 1, disk);
+
+        directBlockLocation = inode.directBlock[0];
+        counter++;
+    }
+    free(blockBuffer);
+    return -1;
+}
+
+int findFreeDirectorySpot(FILE* disk, int directoryBlockNum) {
+    char* directory = malloc(sizeof(char) * BLOCK_SIZE);
+    readBlock(disk, directoryBlockNum, directory);
+    char currentFile[32];
+
+    //Always skip the first inode spot.
+    int i;
+    for(i = 1; i < BLOCK_SIZE/INODE_SIZE; i++) {
+        strncpy(currentFile, directory + i*INODE_SIZE, INODE_SIZE);
+        char inodeLocation[2];
+
+        strncpy(inodeLocation, currentFile, 2);
+
+        long inodeValue = strtol(inodeLocation, NULL, 16);
+        if (inodeValue == 0) {
+            free(directory);
+            return i * INODE_SIZE;
+        }
+    }
+
+    free(directory);
+    return -1;
+}
 
 //=============================++++++++++++++++++++++++*********** MISC ****************+++++++++++++++++++==========================
 char* intToHex(char* buf, int val) {
@@ -217,6 +444,7 @@ char* shortToHex(char* buf, int val) {
     sprintf( buf, "%02x", val);
     return buf;
 }
+
 
 void readBlock(FILE* disk, int blockNum, char* buffer){
     fseek(disk, blockNum * BLOCK_SIZE, SEEK_SET);
@@ -302,17 +530,4 @@ int findInode(FILE* disk) {
     }
     free(InodeBlockVector);
     return -1;
-}
-
-int main(int argc, char* argv[]) {
-    FILE* disk = fopen("vdisk", "w+b");
-    // Maybe add more things to the inode
-    initLLC(disk);
-
-    char buffer[10];
-    writeToFile(disk, "Scarcely on striking packages by so property in delicate. Up or well must less rent read walk so be. Easy sold at do hour sing spot. Any meant has cease too the decay. Since party burst am it match. By or blushes between besides offices noisier as. Sending do brought winding compass in. Paid day till shed only fact age its end. Scarcely on striking packages by so property in delicate. Up or well must less rent read walk so be. Easy sold at do hour sing spot. Any meant has cease too the decay. Since party burst am it match. By or blushes between besides offices noisier as. Sending do brought winding compass in. Paid day till shed only fact age its end. ", 0);
-    readFile(disk, buffer);
-
-    fclose(disk);
-    return 0;
 }
